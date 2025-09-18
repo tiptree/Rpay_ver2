@@ -1,0 +1,109 @@
+/**
+ * メールスレッドを検索する関数
+ * @param {string} SEARCH_WORD - 検索クエリ
+ * @returns {Array} メールスレッドの配列
+ */
+function searchContactMail(SEARCH_WORD) {
+    const query = SEARCH_WORD;
+    const start = 0;
+    const max = 10;
+
+    // Gmailの検索結果を取得
+    var targetThreads = GmailApp.search(query, start, max);
+
+    return targetThreads;
+}
+
+
+/**
+ * 送信先が一致するメールをフィルタリングする関数
+ * @param {Array} mailList - メールのデータリスト
+ * @param {string} recipient - フィルタリングする送信先のメールアドレス
+ * @returns {Array} 送信先が一致するメールのデータリスト
+ */
+function filterMailsByRecipient(mailList, recipient) {
+    // 送信先メールアドレスが一致するオブジェクトをフィルタリングして返す
+    return mailList.filter(function(mail) {
+        return mail.to === recipient;
+    });
+}
+
+/**
+ * メールスレッドから必要なデータを抽出し、配列に格納する関数
+ * @param {Array} threads - メールスレッドの配列
+ * @returns {Array} メールデータの配列
+ */
+function getThreadsData(threads) {
+    var targetThreads = threads;
+    var values = [];
+
+    targetThreads.forEach(function (thread) {
+        var messages = thread.getMessages();
+        messages.forEach(function (message) {
+            var to = message.getTo();
+            var messageBody = message.getPlainBody();
+            var parma = message.getThread().getPermalink();  // パーマネントリンク
+            var subjectTitle = message.getSubject();
+            var sendDate = message.getDate();
+            var mailId = message.getId();
+
+            // メールの各情報を配列に追加
+            values.push([to, sendDate, messageBody, parma, subjectTitle, mailId]);
+        });
+    });
+
+    return values;
+}
+
+/**
+ * 2次元配列をオブジェクトの配列に変換する関数
+ * @param {Array<Array>} arrays - 最初の配列がヘッダー、残りがレコードとなる配列
+ * @returns {Array<Object>} - オブジェクトの配列
+ */
+function arraysToObjects(arrays) {
+    const [header, ...records] = arrays;  // 最初の配列をヘッダー、残りはレコード
+
+    return records.map(record =>
+        record.reduce((acc, value, index) => {
+            acc[header[index]] = value;
+            return acc;
+        }, {})
+    );
+}
+
+/**
+ * オブジェクトを配列に変換する関数
+ * @param {object} objects - 配列に変換するオブジェクトの配列
+ * @returns {Array} オブジェクトを変換した配列
+ */
+function objectsToArrays(objects) {
+    const keys = Object.keys(objects[0]);
+    const records = objects.map(object => 
+        keys.map(key => object[key])
+    );
+    return [keys, ...records];
+}
+
+
+/**
+ * シートの下から指定した行数のデータを取得する関数
+ * @param {Sheet} sheet - 操作するシート
+ * @param {number} numRowsToFetch - 取得する行数
+ * @param {number} lastRow - シートの最終行
+ * @returns {Object} 取得したデータと、データの開始行
+ */
+function underRowSheetData(sheet, numRowsToFetch, lastRow, headerArr) {
+    var startRow = Math.max(lastRow - numRowsToFetch + 1, 2);  // 最終行から指定行数分、または2行目(ヘッダーを除いた最初の行)
+    numRowsToFetch = Math.min(lastRow, numRowsToFetch);   // 取得する行数もしくは最終行
+
+    var data = sheet.getRange(startRow, 1, numRowsToFetch, sheet.getLastColumn()).getValues();
+
+    // ヘッダーを追加
+    data.unshift(headerArr);
+    var underRowSheetDataObj = arraysToObjects(data);
+
+    return {
+        underRowSheetDataObj,
+        startRow
+    };
+}
