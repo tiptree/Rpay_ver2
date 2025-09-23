@@ -1,10 +1,35 @@
-  var SHEET_ID = '1ozJCUSX7CSikxtKgiTKwOBe2FpTyFyCdoeaTowMsbMo';
-  var SHEET_NAME = 'Rpay';
-  var numRowsFromBottom = 100;  //下から何行取得するか
-  var MAILID_ROW = 8;  //何列目にメールidが記載されているか
+// 設定値
+var SHEET_RPAY_ID = '1ozJCUSX7CSikxtKgiTKwOBe2FpTyFyCdoeaTowMsbMo';
+var SHEET_NAME = 'Rpay';
+var numRowsFromBottom = 100;  // 下から何行取得するか
+var MAILID_ROW = 7;           // 何列目にメールIDが記載されているか（1始まり）
 
+// =======================================
+// 正規表現定義（外部化された抽出ルール）
+// =======================================
+const FIELD_DEFINITIONS = [
+  {
+    label: 'shop',
+    regex: /ご利用店舗\s+(.+)/,
+  },
+  {
+    label: 'amount',
+    regex: /決済総額\s+(\d{1,3}(?:,\d{3})*)/,
+    process: val => val.replace(/[¥￥,]/g, '').trim(),
+  },
+  {
+    label: 'date',
+    regex: /ご利用日時\s+(\d{4}\/\d{2}\/\d{2}\(.\)\s+\d{2}:\d{2})/,
+  },
+  {
+    label: 'name',
+    regex: /鎌田\s+(.+)様/,
+  }
+];
 
-
+// =======================================
+// メイン関数
+// =======================================
 function main() {
   const labelQuery = 'label:RPAY label:処理OK';
   const threads = searchContactMail(labelQuery);
@@ -14,12 +39,11 @@ function main() {
     return;
   }
 
-  // G列の既存メールIDを指定件数下からとる
-  const existingIds = getLastNRows(SHEET_ID, SHEET_NAME, numRowsFromBottom)
-                       .map(row => row[MAILID_ROW - 1]) // ここで直接値を取り出す
+  // G列の既存メールIDを指定件数下から取得
+  const existingIds = getLastNRows(SHEET_RPAY_ID, SHEET_NAME, numRowsFromBottom)
+                       .map(row => row[MAILID_ROW - 1]);  // インデックス調整
 
-
-  // 既存IDを渡して、重複のない新しいメールだけ取得
+  // 既存IDと重複しない新規メールを抽出
   const newMails = getThreadsData(threads, existingIds);
 
   if (newMails.length === 0) {
@@ -27,54 +51,58 @@ function main() {
     return;
   }
 
+  // 各メールについて情報抽出・スプレッドシートに追加
+  const newRows = [];
   newMails.forEach(mail => {
-    const [ , , sendDate, body, permalink, subject, id] = mail;
+    const [rpayid, , sendDate, body, permalink, subject, id] = mail;
 
-    const rpayid = mail[0];  // uniqueid
-    inputdate =  new Date();
-    const shop = extractShop(body);
-    const amount = extractAmount(body);
-    const date = extractDate(body);
-    const name = extractName(body);
+    const inputdate = new Date();
+    const fields = extractFields(body);
 
-    appendToSheet(SHEET_ID, SHEET_NAME, [
-      rpayid, inputdate ,date, shop, name, amount, permalink, id
-    ]);
-  });
+  newRows.push([
+    rpayid,
+    inputdate,
+    fields.date,
+    fields.shop,
+    fields.name,
+    fields.amount,
+    permalink,
+    id
+  ]);
+});
 
-  console.log(`${newMails.length} 件の新しいメールを書き込みました。`);
+if (newRows.length > 0) {
+  appendRowsToSheet(SHEET_RPAY_ID, SHEET_NAME, newRows);
+    console.log(`${newMails.length} 件の新しいメールを書き込みました。`);
+}
 }
 
+//--------------------------------------メインここまで-------------------------------------------------------
 
 
-/**
- * メールスレッドを検索する関数
- * @param {string} SEARCH_WORD - 検索クエリ
- * @returns {Array} メールスレッドの配列
- */
+// =======================================
+// メールスレッド検索
+// =======================================
 function searchContactMail(SEARCH_WORD) {
   const query = SEARCH_WORD;
   const start = 0;
   const max = 10;
-
-  // Gmailの検索結果を取得
-  var targetThreads = GmailApp.search(query, start, max);
-
-  return targetThreads;
+  return GmailApp.search(query, start, max);
 }
 
-
+// =======================================
+// メール本文とメタ情報を抽出（新規のみ）
+// =======================================
 function getThreadsData(threads, existingIds) {
   const values = [];
 
   threads.forEach(thread => {
     thread.getMessages().forEach(message => {
       const id = message.getId();
-      if (existingIds.includes(id)) return; // 既に存在するIDはスキップ
+      if (existingIds.includes(id)) return;
 
       const uniqueid = padStartWith0(Math.random().toString(16).slice(7), 8);
       const inputdate = new Date();
-      const to = message.getTo();
       const sendDate = message.getDate();
       const body = message.getPlainBody();
       const permalink = message.getThread().getPermalink();
@@ -87,72 +115,55 @@ function getThreadsData(threads, existingIds) {
   return values;
 }
 
-/**
- * 任意のスプレッドシートの任意のシートから、下から指定行数を取得する関数
- *
- * @param {string} spreadsheetId - 対象のスプレッドシートID
- * @param {string} sheetName - 対象のシート名
- * @param {number} numRowsFromBottom - 下から取得したい行数
- * @returns {Array} - 取得した2次元配列データ
- */
+// =======================================
+// スプレッドシートから下からN行取得
+// =======================================
 function getLastNRows(spreadsheetId, sheetName, numRowsFromBottom) {
   const ss = SpreadsheetApp.openById(spreadsheetId);
   const sheet = ss.getSheetByName(sheetName);
-  if (!sheet) {
-    throw new Error(`シート "${sheetName}" が見つかりません`);
-  }
+  if (!sheet) throw new Error(`シート "${sheetName}" が見つかりません`);
 
   const lastRow = sheet.getLastRow();
   const lastCol = sheet.getLastColumn();
-
-  // 開始行を計算（最小は1行目）
   const startRow = Math.max(lastRow - numRowsFromBottom + 1, 1);
   const numRows = lastRow - startRow + 1;
 
-  const data = sheet.getRange(startRow, 1, numRows, lastCol).getValues();
-
-  return data;
+  return sheet.getRange(startRow, 1, numRows, lastCol).getValues();
 }
 
-
-// =======================
-// スプレッドシートに1行追記
-// =======================
-function appendToSheet(spreadsheetId, sheetName, rowData) {
+// =======================================
+// 複数行を一括でスプレッドシートに追加する関数
+// =======================================
+function appendRowsToSheet(spreadsheetId, sheetName, rows) {
   const ss = SpreadsheetApp.openById(spreadsheetId);
   const sheet = ss.getSheetByName(sheetName);
-  sheet.appendRow(rowData);
+
+  const startRow = sheet.getLastRow() + 1;
+  const numRows = rows.length;
+  const numCols = rows[0].length;
+
+  sheet.getRange(startRow, 1, numRows, numCols).setValues(rows);
 }
 
-
-// =======================
-// 正規表現抽出関数
-// =======================
-function extractShop(body) {
-  const match = body.match(/ご利用店舗\s+(.+)/);
-  return match ? match[1].trim() : '不明';
+// =======================================
+// 正規表現パターンに基づいて本文からフィールド抽出
+// =======================================
+function extractFields(body) {
+  const result = {};
+  FIELD_DEFINITIONS.forEach(field => {
+    const match = body.match(field.regex);
+    let value = match ? match[1].trim() : '不明';
+    if (field.process) {
+      value = field.process(value);
+    }
+    result[field.label] = value;
+  });
+  return result;
 }
 
-function extractAmount(body) {
-  const match = body.match(/決済総額\s+(\d{1,3}(,\d{3})*)/);
-  return match ? match[1].replace(/[¥￥]/, '').trim() : '不明';
-}
-
-function extractDate(body) {
-  const match = body.match(/ご利用日時\s+(\d{4}\/\d{2}\/\d{2}\(.\)\s+\d{2}:\d{2})/);
-  return match ? match[1].trim() : '不明';
-}
-
-function extractName(body) {
-  const match = body.match(/鎌田\s+(.+)様/);
-  return match ? match[1].trim() : '不明';
-}
-
-/**
-* 指定した長さで０埋めする関数
-* @param {number} number ０埋めする数値
-* @param {number} length ０埋めする長さ
-**/
+// =======================================
+// 0埋めユーティリティ
+// =======================================
 function padStartWith0(number, length) {
   return number.toString().padStart(length, '0');
 }
