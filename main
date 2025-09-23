@@ -1,96 +1,158 @@
-/**
- * 指定されたラベルのメールスレッドを検索し、必要なデータを抽出してGoogle Sheetsに書き込む関数
- * 処理完了のラベルをメールスレッドに追加
- */
-function rpayToSheet() {
-  // メールスレッドを検索
-   // houseBook ライブラリを使用して、指定したラベルのメールスレッドを取得
-  var mailThreads = searchContactMail("label:RPAY -label:処理OK");
-
-    // メールスレッドからデータを取得
-  // houseBook ライブラリの関数を使用
-  var resultMailList = getThreadsData(mailThreads);
-
-  
-  //書き込むシートを取得
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName("Rpay");
-  var lastRow = sheet.getLastRow();
-  var numRowsToFetch = 10;  //下から何行分とるか
-
-  var sheetData = sheet.getRange(lastRow-numRowsToFetch, 1, numRowsToFetch+1, sheet.getLastColumn()).getValues();
+  var SHEET_ID = '1ozJCUSX7CSikxtKgiTKwOBe2FpTyFyCdoeaTowMsbMo';
+  var SHEET_NAME = 'Rpay';
+  var numRowsFromBottom = 100;  //下から何行取得するか
+  var MAILID_ROW = 8;  //何列目にメールidが記載されているか
 
 
 
+function main() {
+  const labelQuery = 'label:RPAY label:処理OK';
+  const threads = searchContactMail(labelQuery);
 
-  //新着のRpay利用メールがなければ終了
-  if (resultMailList.length === 0) {
-    Logger.log("新着メールはありません");
-    return 0;
+  if (threads.length === 0) {
+    console.log("メールが来ていません");
+    return;
   }
 
-  //新着のRpay利用メールがある場合
-  else {
-
-    //resultMailListにヘッダーを追加
-    resultMailList.unshift(["to", "sendDate", "messageBody", "parma", "subjectTitle","mailId"]);
+  // G列の既存メールIDを指定件数下からとる
+  const existingIds = getLastNRows(SHEET_ID, SHEET_NAME, numRowsFromBottom)
+                       .map(row => row[MAILID_ROW - 1]) // ここで直接値を取り出す
 
 
-    //配列をオブジェクトに変更
-    // houseBook ライブラリの関数を使用
-    //@param {Array} resultMailList
-    const resultMailListObj = arraysToObjects(resultMailList)
+  // 既存IDを渡して、重複のない新しいメールだけ取得
+  const newMails = getThreadsData(threads, existingIds);
 
-    //メール本文から必要な情報を抽出する正規表現のパターン
-    const patterns = {
-      userName: /鎌田\s+(.+)様/,
-      usageDate: /ご利用日時\s+(\d{4}\/\d{2}\/\d{2}\(.\)\s+\d{2}:\d{2})/,
-      storeName: /ご利用店舗\s+(.+)/,
-      amount: /決済総額\s+(\d{1,3}(,\d{3})*)/
-    };
-
-    /**
-     * メールオブジェクトから必要なデータを抽出する関数。
-     * @param {Object} mail - メールのデータオブジェクト。
-     * @returns {Object} - 抽出されたデータを含むオブジェクト。
-     */
-    function extractData(mail) {
-      const messageBody = mail.messageBody;
-      return {
-        rpayId: houseBook.createID(),  // houseBook ライブラリを使用して一意のIDを作成
-        inputDate: new Date(),  // 現在の日付を取得
-        usageDate: messageBody.match(patterns.usageDate)?.[1] || '',  // 利用日時を抽出
-        storeName: messageBody.match(patterns.storeName)?.[1] || '',  // 店名を抽出
-        userName: messageBody.match(patterns.userName)?.[1] || '',  // 使用者を抽出
-        amount: messageBody.match(patterns.amount)?.[1] || '',  // 金額を抽出
-        permanentLink: mail.parma || '',  //パーマネントリンクを抽出
-        mailId: mail.mailId || ''  //メールID;
-
-      };
-    }
-    
-
-
-    // resultMailListObjから配列に変換
-    // houseBook ライブラリの関数を使用
-    const resultRpay = houseBook.objectsToArrays(resultMailListObj.map(mail => extractData(mail)));
-
-
-
-
-
-
-    //resultRpayにはヘッダーがあるから取り除く
-    resultRpay.shift();
-
-    sheet.getRange(sheet.getLastRow() + 1, 1, resultRpay.length, resultRpay[0].length).setValues(resultRpay);
-
-  //処理済みのラベルを付ける
-  GmailApp.createLabel('処理OK').addToThreads(mailThreads);
-
-
+  if (newMails.length === 0) {
+    console.log("記入されています");
+    return;
   }
 
+  newMails.forEach(mail => {
+    const [ , , sendDate, body, permalink, subject, id] = mail;
+
+    const rpayid = mail[0];  // uniqueid
+    inputdate =  new Date();
+    const shop = extractShop(body);
+    const amount = extractAmount(body);
+    const date = extractDate(body);
+    const name = extractName(body);
+
+    appendToSheet(SHEET_ID, SHEET_NAME, [
+      rpayid, inputdate ,date, shop, name, amount, permalink, id
+    ]);
+  });
+
+  console.log(`${newMails.length} 件の新しいメールを書き込みました。`);
 }
 
 
+
+/**
+ * メールスレッドを検索する関数
+ * @param {string} SEARCH_WORD - 検索クエリ
+ * @returns {Array} メールスレッドの配列
+ */
+function searchContactMail(SEARCH_WORD) {
+  const query = SEARCH_WORD;
+  const start = 0;
+  const max = 10;
+
+  // Gmailの検索結果を取得
+  var targetThreads = GmailApp.search(query, start, max);
+
+  return targetThreads;
+}
+
+
+function getThreadsData(threads, existingIds) {
+  const values = [];
+
+  threads.forEach(thread => {
+    thread.getMessages().forEach(message => {
+      const id = message.getId();
+      if (existingIds.includes(id)) return; // 既に存在するIDはスキップ
+
+      const uniqueid = padStartWith0(Math.random().toString(16).slice(7), 8);
+      const inputdate = new Date();
+      const to = message.getTo();
+      const sendDate = message.getDate();
+      const body = message.getPlainBody();
+      const permalink = message.getThread().getPermalink();
+      const subject = message.getSubject();
+
+      values.push([uniqueid, inputdate, sendDate, body, permalink, subject, id]);
+    });
+  });
+
+  return values;
+}
+
+/**
+ * 任意のスプレッドシートの任意のシートから、下から指定行数を取得する関数
+ *
+ * @param {string} spreadsheetId - 対象のスプレッドシートID
+ * @param {string} sheetName - 対象のシート名
+ * @param {number} numRowsFromBottom - 下から取得したい行数
+ * @returns {Array} - 取得した2次元配列データ
+ */
+function getLastNRows(spreadsheetId, sheetName, numRowsFromBottom) {
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    throw new Error(`シート "${sheetName}" が見つかりません`);
+  }
+
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+
+  // 開始行を計算（最小は1行目）
+  const startRow = Math.max(lastRow - numRowsFromBottom + 1, 1);
+  const numRows = lastRow - startRow + 1;
+
+  const data = sheet.getRange(startRow, 1, numRows, lastCol).getValues();
+
+  return data;
+}
+
+
+// =======================
+// スプレッドシートに1行追記
+// =======================
+function appendToSheet(spreadsheetId, sheetName, rowData) {
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = ss.getSheetByName(sheetName);
+  sheet.appendRow(rowData);
+}
+
+
+// =======================
+// 正規表現抽出関数
+// =======================
+function extractShop(body) {
+  const match = body.match(/ご利用店舗\s+(.+)/);
+  return match ? match[1].trim() : '不明';
+}
+
+function extractAmount(body) {
+  const match = body.match(/決済総額\s+(\d{1,3}(,\d{3})*)/);
+  return match ? match[1].replace(/[¥￥]/, '').trim() : '不明';
+}
+
+function extractDate(body) {
+  const match = body.match(/ご利用日時\s+(\d{4}\/\d{2}\/\d{2}\(.\)\s+\d{2}:\d{2})/);
+  return match ? match[1].trim() : '不明';
+}
+
+function extractName(body) {
+  const match = body.match(/鎌田\s+(.+)様/);
+  return match ? match[1].trim() : '不明';
+}
+
+/**
+* 指定した長さで０埋めする関数
+* @param {number} number ０埋めする数値
+* @param {number} length ０埋めする長さ
+**/
+function padStartWith0(number, length) {
+  return number.toString().padStart(length, '0');
+}
