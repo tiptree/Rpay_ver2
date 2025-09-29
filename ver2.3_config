@@ -1,0 +1,70 @@
+// =======================================
+// モード別設定
+// =======================================
+const CONFIGS = {
+  rpay: {
+    labelQuery: 'label:RPAY',
+    sheetId: '1ozJCUSX7CSikxtKgiTKwOBe2FpTyFyCdoeaTowMsbMo',
+    sheetName: 'Rpay',
+    mailIdCol: 8,
+    numRowsFromBottom: 50,
+    fields: [
+      { label: 'store', regex: /ご利用店舗\s+(.+)/ },
+      {
+        label: 'amount',
+        regex: /決済総額\s+(\d{1,3}(?:,\d{3})*)/,
+        process: val => val.replace(/[¥￥,]/g, '').trim(),
+      },
+      {
+        label: 'date',
+        regex: /ご利用日時\s+(\d{4}\/\d{2}\/\d{2}\(.\)\s+\d{2}:\d{2})/,
+      },
+      { label: 'name', regex: /鎌田\s+(.+)様/ },
+    ]
+  },
+
+  card: {
+    labelQuery: 'label:カード明細',
+    sheetId: '1nul58HGR_baa5v1HwLEToi2HaEK9OaMiMAkleJiu1Gw',
+    sheetName: '明細T',
+    mailIdCol: 11,
+    numRowsFromBottom: 2000,
+
+    // 件名に "速報版" を含む場合のフィールド
+    fields_sokuho: [
+      { label: 'usage_date', regex: /利用日:\s*(\d{4}\/\d{2}\/\d{2})/ },
+      { label: 'usege', regex: /利用者:(.+)/ },
+      {
+        label: 'amount',
+        regex: /利用金額:\s*(\d{1,3}(?:,\d{3})*)/,
+        process: val => val.replace(/[¥￥,]/g, '').trim()
+      },
+      { label: 'posision', regex: /利用場所：(.+)/ }
+    ],
+
+    // 件名に "速報版" を含まない場合のフィールド
+    fields_normal: [
+      { label: 'usage_date', regex: /利用日:\s*(\d{4}\/\d{2}\/\d{2})/ },
+      { label: 'store_name', regex: /利用先:(.+)/ },
+      { label: 'usege', regex: /利用者:(.+)/ },
+      {
+        label: 'amount',
+        regex: /利用金額:\s*(\d{1,3}(?:,\d{3})*)/,
+        process: val => val.replace(/[¥￥,]/g, '').trim()
+      },
+      { label: 'payment_month', regex: /支払月：(.+)/ },
+      { label: 'posision', regex: /利用場所：(.+)/ }
+    ]
+  }
+};
+
+// =======================================
+// 家計簿スプレッドシート設定（rpayのみ使用）
+// =======================================
+const HOUSEHOLD_SHEET = {
+  sheetId: '1aPCfFScUrRhGcASCP0vaWqG9ZDKU3mi1VUZSj_lYEbk',
+  sheets: {
+    meisai: '明細T',
+    getsudo: '月度M'
+  }
+};
