@@ -1,0 +1,69 @@
+// =======================================
+// 処理対象のメールモード別設定
+// =======================================
+const CONFIGS = {
+  rpay: {
+    labelQuery: 'label:RPAY label:処理OK',
+    sheetId: '1ozJCUSX7CSikxtKgiTKwOBe2FpTyFyCdoeaTowMsbMo', // ← RPayシートIDに置き換えてください
+    sheetName: 'Rpay',
+    mailIdCol: 8,
+    numRowsFromBottom: 100,
+    fields: [
+      {
+        label: 'store',
+        regex: /ご利用店舗\s+(.+)/,
+      },
+      {
+        label: 'amount',
+        regex: /決済総額\s+(\d{1,3}(?:,\d{3})*)/,
+        process: val => val.replace(/[¥￥,]/g, '').trim(),
+      },
+      {
+        label: 'date',
+        regex: /ご利用日時\s+(\d{4}\/\d{2}\/\d{2}\(.\)\s+\d{2}:\d{2})/,
+      },
+      {
+        label: 'name',
+        regex: /鎌田\s+(.+)様/,
+      }
+    ]
+  },
+
+  card: {
+    labelQuery: 'label:CARD label:処理OK',
+    sheetId: '1nul58HGR_baa5v1HwLEToi2HaEK9OaMiMAkleJiu1Gw', // ← カード明細シートIDに置き換えてください
+    sheetName: '明細T',
+    mailIdCol: 8,
+    numRowsFromBottom: 200,
+    fields: [
+      {
+        label: 'store',
+        regex: /店舗名：(.+)/,
+      },
+      {
+        label: 'amount',
+        regex: /利用金額:\s+(\d{1,3}(,\d{3})*)/g,
+        process: val => val.replace(/[¥￥,]/g, '').trim(),
+      },
+      {
+        label: 'date',
+        regex: /利用日:\s*(\d{4}\/\d{2}\/\d{2})/g,
+      },
+      {
+        label: 'cardType',
+        regex: /カード種類：(.+)/,
+      }
+    ]
+  }
+};
+
+// =======================================
+// 家計簿スプレッドシート設定
+// =======================================
+const HOUSEHOLD_SHEET = {
+  sheetId: '1aPCfFScUrRhGcASCP0vaWqG9ZDKU3mi1VUZSj_lYEbk',
+  sheets: {
+    meisai: '明細T',
+    getsudo: '月度M'
+  }
+};
