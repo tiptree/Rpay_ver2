@@ -1,0 +1,195 @@
+function modeChange() {
+  main('card');
+}
+
+// =======================================
+// メイン関数
+// =======================================
+function main(mode) {
+  const config = CONFIGS[mode];
+  if (!config) {
+    console.error(`不明なモードです：${mode}`);
+    return;
+  }
+
+  const threads = searchContactMail(config.labelQuery);
+  if (threads.length === 0) {
+    console.log("対象メールが来ていません");
+    return;
+  }
+
+  const existingIds = getLastNRows(config.sheetId, config.sheetName, config.numRowsFromBottom)
+    .map(row => row[config.mailIdCol - 1]);
+
+  const newMails = getThreadsData(threads, existingIds, mode);
+  if (newMails.length === 0) {
+    console.log("記入されています");
+    return;
+  }
+
+  const newRows = [];
+  const householdRows = [];
+
+  newMails.forEach(mail => {
+    const [uniqueid, inputDate, sendDate, body, permalink, subject, id] = mail;
+
+    if (mode === 'card') {
+      const isSokuho = subject.includes("速報版");
+      const fieldDefs = isSokuho ? config.fields_sokuho : config.fields_normal;
+      const fields = extractFields(body, fieldDefs);
+
+      // カード用メインシート
+      newRows.push([
+        uniqueid,
+        inputDate,
+        fields.usage_date || '',
+        isSokuho ? '' : (fields.store_name || ''),
+        fields.usege || '',
+        fields.amount || '',
+        isSokuho ? '' : (fields.payment_month || ''),
+        '', // memo
+        isSokuho ? 1 : 0, // ← 速報版なら 1、決定版なら 0,
+        permalink,
+        id
+      ]);
+
+      // カード用家計簿
+      householdRows.push([
+        uniqueid,
+        inputDate,
+        fields.usage_date || '',
+        fields.amount || '',
+        "CARD",
+        "", "", "", "", // 区分・タグ・メモ
+        isSokuho ? '' : (fields.store_name || ''),
+        "", "", "",
+        isSokuho ? 1 : 0 // ← 速報版なら 1、決定版なら 0
+      ]);
+
+    } else if (mode === 'rpay') {
+      const fields = extractFields(body, config.fields);
+
+      // RPay用メインシート
+      newRows.push([
+        uniqueid,
+        inputDate,
+        fields.date || '',
+        fields.store || '',
+        fields.name || fields.cardType || '',
+        fields.amount || '',
+        permalink,
+        id
+      ]);
+
+      // RPay用家計簿
+      householdRows.push([
+        uniqueid,
+        inputDate,
+        fields.date || '',
+        fields.amount || '',
+        "RPay",
+        "", "", "", "", // 区分・タグ・メモ
+        fields.store || '',
+        "", "", "",
+        2
+      ]);
+    }
+  });
+
+  // メインシートへ追記
+  if (newRows.length > 0) {
+    appendRowsToSheet(config.sheetId, config.sheetName, newRows);
+    console.log(`${newRows.length} 件の ${mode} メールを書き込みました。`);
+  }
+
+  // 家計簿に記入（rpay と card 共通）
+  if (householdRows.length > 0) {
+    appendRowsToSheet(HOUSEHOLD_SHEET.sheetId, HOUSEHOLD_SHEET.sheets.meisai, householdRows);
+    console.log(`家計簿に ${householdRows.length} 件のデータを追加しました。`);
+  }
+}
+
+// =======================================
+// Gmail 検索
+// =======================================
+function searchContactMail(SEARCH_WORD) {
+  return GmailApp.search(SEARCH_WORD, 0, 10);
+}
+
+// =======================================
+// Gmailスレッドデータ抽出
+// =======================================
+function getThreadsData(threads, existingIds, mode) {
+  const values = [];
+
+  //console.log(`getThreadsData: スレッド数 = ${threads.length}`);
+
+  threads.forEach(thread => {
+    thread.getMessages().forEach(message => {
+      const id = message.getId();
+      if (existingIds.includes(id)) return;
+
+      // card モードでは宛先フィルタリング
+      if (mode === 'card') {
+        const toAddress = message.getTo();
+        if (!toAddress.includes("flhrandmini@gmail.com")) return;
+      }
+  //console.log(`メッセージID: ${id}, 件名: ${message.getSubject()}, 宛先: ${message.getTo()}`);
+      const uniqueid = padStartWith0(Math.random().toString(16).slice(7), 8);
+      const inputdate = new Date();
+      const sendDate = message.getDate();
+      const body = message.getPlainBody();
+      const permalink = message.getThread().getPermalink();
+      const subject = message.getSubject();
+
+      values.push([uniqueid, inputdate, sendDate, body, permalink, subject, id]);
+    });
+  });
+  return values;
+}
+
+// =======================================
+// 最後のN行取得（重複チェック用）
+// =======================================
+function getLastNRows(spreadsheetId, sheetName, numRowsFromBottom) {
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = ss.getSheetByName(sheetName);
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  const startRow = Math.max(lastRow - numRowsFromBottom + 1, 1);
+  const numRows = lastRow - startRow + 1;
+  return sheet.getRange(startRow, 1, numRows, lastCol).getValues();
+}
+
+// =======================================
+// シートへ追記
+// =======================================
+function appendRowsToSheet(spreadsheetId, sheetName, rows) {
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = ss.getSheetByName(sheetName);
+  const startRow = sheet.getLastRow() + 1;
+  sheet.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
+}
+
+// =======================================
+// メール本文からフィールド抽出
+// =======================================
+function extractFields(body, fieldDefs) {
+  const result = {};
+  fieldDefs.forEach(field => {
+    const match = body.match(field.regex);
+    let value = match ? match[1].trim() : '不明';
+    if (field.process) {
+      value = field.process(value);
+    }
+    result[field.label] = value;
+  });
+  return result;
+}
+
+// =======================================
+// ID補助関数
+// =======================================
+function padStartWith0(number, length) {
+  return number.toString().padStart(length, '0');
+}
