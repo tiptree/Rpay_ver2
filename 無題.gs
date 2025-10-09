@@ -9,31 +9,33 @@ const CONFIGS = {
     mailIdCol: 8,
     numRowsFromBottom: 50,
     filterTo: null, // フィルターなし
+    sortRowCount: 50,  // 並び替えをする行の数
 
     fields: [
-      { label: 'store', regex: /ご利用店舗\s+(.+)/ },
+      { label: 'store_name', regex: /ご利用店舗[:：]?\s*(.+)/ },
       {
         label: 'amount',
         regex: /決済総額\s+(\d{1,3}(?:,\d{3})*)/,
         process: val => val.replace(/[¥￥,]/g, '').trim(),
       },
       {
-        label: 'date',
+        label: 'usage_date',
         regex: /ご利用日時\s+(\d{4}\/\d{2}\/\d{2}\(.\)\s+\d{2}:\d{2})/,
       },
-      { label: 'name', regex: /鎌田\s+(.+)様/ },
+      { label: 'usage', regex: /鎌田\s+(.+)様/ },
     ],
 
     // メインシート出力順
     outputHeaders: [
       'rpay_id',
       'input_date',
-      'date',
-      'store',
-      'name',
+      'usage_date',     // ← 修正: 'date' → 'usage_date'
+      'store_name',     // ← 修正: 'store' → 'store_name'
+      'usage',          // ← 修正: 'name' → 'usage'
       'amount',
       'permanent_link',
-      'mailid'
+      'mailid',
+      'posision'        // ★追加
     ],
 
     // 家計簿出力順
@@ -62,10 +64,11 @@ const CONFIGS = {
     mailIdCol: 11,
     numRowsFromBottom: 2000,
     filterTo: 'flhrandmini@gmail.com',
+    sortRowCount: 50,  // 並び替えをする行の数
 
     fields_sokuho: [
       { label: 'usage_date', regex: /利用日:\s*(\d{4}\/\d{2}\/\d{2})/ },
-      { label: 'usege', regex: /利用者:(.+)/ },
+      { label: 'usage', regex: /利用者:(.+)/ },
       {
         label: 'amount',
         regex: /利用金額:\s*(\d{1,3}(?:,\d{3})*)/,
@@ -77,13 +80,13 @@ const CONFIGS = {
     fields_normal: [
       { label: 'usage_date', regex: /利用日:\s*(\d{4}\/\d{2}\/\d{2})/ },
       { label: 'store_name', regex: /利用先:(.+)/ },
-      { label: 'usege', regex: /利用者:(.+)/ },
+      { label: 'usage', regex: /利用者:(.+)/ },
       {
         label: 'amount',
         regex: /利用金額:\s*(\d{1,3}(?:,\d{3})*)/,
         process: val => val.replace(/[¥￥,]/g, '').trim()
       },
-      { label: 'payment_month', regex: /支払月：(.+)/ },
+      { label: 'payment_month', regex: /支払月[:：]\s*(.+)/ },
       { label: 'posision', regex: /利用場所：(.+)/ }
     ],
 
@@ -93,7 +96,7 @@ const CONFIGS = {
       'input_date',
       'usage_date',
       'store_name',   // 空文字になる
-      'usege',
+      'usage',
       'amount',
       'payment_month', // 空文字になる
       'memo',          // 空文字
@@ -107,7 +110,7 @@ const CONFIGS = {
       'input_date',
       'usage_date',
       'store_name',
-      'usege',
+      'usage',
       'amount',
       'payment_month',
       'memo',
@@ -141,6 +144,6 @@ const HOUSEHOLD_SHEET = {
   sheets: {
     meisai: '明細T',
     getsudo: '月度M'
-  }
+  },
+  sortRowCount: 3000  // ★追加
 };
-
