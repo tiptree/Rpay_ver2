@@ -1,5 +1,8 @@
+const IS_TEST_MODE = true; // ← 本番では false
+
+
 function modeChange() {
-  main('rpay');
+  main('card');
 }
 
 
@@ -33,12 +36,12 @@ function main(mode) {
   const newRowObjects = [];
   const householdRowObjects = [];
 
-//ここにメール上書き関数呼び出しを追加
-if (householdRowObjects.length > 0) {
-  writeHouseholdData(householdRowObjects);  // ← これを使う
-}
+  //ここにメール上書き関数呼び出しを追加
+  if (householdRowObjects.length > 0) {
+    writeHouseholdData(householdRowObjects);  // ← これを使う
+  }
 
-//ここまで
+  //ここまで
 
 
   newMails.forEach(mail => {
@@ -48,17 +51,23 @@ if (householdRowObjects.length > 0) {
       const fieldDefs = isSokuho ? config.fields_sokuho : config.fields_normal;
       const fields = extractFields(body, fieldDefs);
 
+      // ★ 追加：card用 usage_date を Date 化
+      const usageDate = fields.usage_date
+        ? new Date(fields.usage_date.replace(/\//g, '-'))
+        : null;
+
+
       // カード用メインシート（オブジェクト）
       const mainRow = {
         card_id: uniqueid,
         input_date: inputDate,
-        usage_date: fields.usage_date || '',
+        usage_date: usageDate,
         store_name: isSokuho ? '' : (fields.store_name || ''),
         usage: fields.usage || '',
         amount: fields.amount || '',
         payment_month: isSokuho ? '' : (fields.payment_month || ''),
         memo: '',
-        posision: isSokuho ? 1 : 0,
+        position: isSokuho ? 1 : 0,
         permanent_link: permalink,
         mailid: id
       };
@@ -68,35 +77,44 @@ if (householdRowObjects.length > 0) {
       const householdRow = {
         id: uniqueid,
         input_date: inputDate,
-        usage_date: fields.usage_date || '',
+        usage_date: usageDate,
         amount: fields.amount || '',
         payment_method: "CARD",
         category_large: "",
         category_small: "",
         tag: fields.usage || '',  //→usageを入力する　自分用か家族用か
         memo: "",
-        store: isSokuho ? '' : (fields.store_name || ''),
-        month_id: resolver.resolve(fields.usage_date),
+        store_name: isSokuho ? '' : (fields.store_name || ''),
+        month_id: resolver.resolve(usageDate),
         payment_date: "",
         payment_month_id: "",
-        posision: isSokuho ? 1 : 0
+        position: isSokuho ? 1 : 0
       };
       householdRowObjects.push(householdRow);
 
     } else if (mode === 'rpay') {
       const fields = extractFields(body, config.fields);
 
+      // "2025/12/17(水) 15:32" → Date
+      const usageDateStr = fields.usage_date;
+      const usageDate = new Date(
+        usageDateStr
+          .replace(/\(.+\)/, '')  // 曜日削除
+          .replace(/\//g, '-')
+      );
+
+
       // RPay用メインシート（オブジェクト）
       const mainRow = {
         rpay_id: uniqueid,
         input_date: inputDate,
-        usage_date: fields.usage_date || '',
+        usage_date: usageDate,
         store_name: fields.store_name || '',
         usage: fields.usage || fields.cardType || '',
         amount: fields.amount || '',
         permanent_link: permalink,
         mailid: id,
-        posision: 2
+        position: 2
       };
       newRowObjects.push(mainRow);
 
@@ -104,18 +122,18 @@ if (householdRowObjects.length > 0) {
       const householdRow = {
         id: uniqueid,
         input_date: inputDate,
-        usage_date: fields.usage_date.match(/\d{4}\/\d{2}\/\d{2}/)?.[0] || '',  //時刻を削除している
+        usage_date: usageDate,
         amount: fields.amount || '',
         payment_method: "RPay",
         category_large: "",
         category_small: "",
         tag: fields.usage === "陽介" ? "本人" : fields.usage === "美智子" ? "家族" : "不明",
         memo: "",
-        store: fields.store_name || '',
-        month_id: resolver.resolve(fields.usage_date), // ← ここで月度IDをセット,
+        store_name: fields.store_name || '',
+        month_id: resolver.resolve(usageDate), // ← ここで月度IDをセット,
         payment_date: "",
         payment_month_id: "",
-        posision: 2
+        position: 2
       };
       householdRowObjects.push(householdRow);
     }
@@ -137,7 +155,7 @@ if (householdRowObjects.length > 0) {
     console.log(`家計簿に ${householdRowObjects.length} 件のデータを追加しました。`);
   }
 
- // すべて書き込み完了後に、並び替えを一括で実行
+  // すべて書き込み完了後に、並び替えを一括で実行
   sortSheet(HOUSEHOLD_SHEET.sheetId, HOUSEHOLD_SHEET.sheets.meisai, HOUSEHOLD_SHEET.sortRowCount);
   sortSheet(config.sheetId, config.sheetName, config.sortRowCount);
 
@@ -148,6 +166,7 @@ if (householdRowObjects.length > 0) {
 // Gmail 検索
 // =======================================
 function searchContactMail(SEARCH_WORD) {
+
   return GmailApp.search(SEARCH_WORD, 0, 10);
 }
 
@@ -214,7 +233,7 @@ function extractFields(body, fieldDefs) {
   fieldDefs.forEach(field => {
     const match = body.match(field.regex);
     let value = match ? match[1].trim() : '不明';
-// ★ 安全に field.process を適用
+    // ★ 安全に field.process を適用
     if (field.process && value !== '不明') {
       try {
         value = field.process(value);
@@ -273,35 +292,53 @@ class GatudoResolver {
     this.monthRanges = values.slice(1).map(row => {
       const [gatudo_id, , startDateRaw, endDateRaw] = row;
 
-      // 曜日を除去して "YYYY/MM/DD" 形式に変換
-      const cleanStart = this._cleanDateString(startDateRaw);
-      const cleanEnd = this._cleanDateString(endDateRaw);
+      const start = this._toDateOnly(startDateRaw);
+      const end = this._toDateOnly(endDateRaw);
 
-      const startDate = new Date(cleanStart);
-      const endDate = new Date(cleanEnd);
-
-      return { id: gatudo_id, start: startDate, end: endDate };
+      return { id: gatudo_id, start, end };
     });
   }
 
-  _cleanDateString(str) {
-    if (typeof str !== 'string') str = Utilities.formatDate(str, Session.getScriptTimeZone(), 'yyyy/MM/dd');
-    return str.replace(/\(.+\)/, '').trim(); // 「(水)」などの曜日を除去
+  /**
+   * Date または文字列を「日付のみ（00:00:00）」の Date に変換
+   */
+  _toDateOnly(value) {
+    let d;
+    if (value instanceof Date) {
+      d = value;
+    } else {
+      const clean = value.replace(/\(.+\)/, '').trim(); // 曜日削除
+      d = new Date(clean.replace(/\//g, '-'));
+    }
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
   }
 
-  resolve(usageDateStr) {
-    const usageDate = new Date(usageDateStr.replace(/\//g, '-')); // 安全のためハイフン形式に
+  /**
+   * usageDate は Date オブジェクト（時刻あり）を受け取る
+   */
+  resolve(usageDate) {
+    const compareDate = new Date(
+      usageDate.getFullYear(),
+      usageDate.getMonth(),
+      usageDate.getDate()
+    );
+
     for (const range of this.monthRanges) {
-      if (usageDate >= range.start && usageDate <= range.end) {
+      if (compareDate >= range.start && compareDate <= range.end) {
         return range.id;
       }
     }
-    return ''; // 見つからない場合
+    return '';
   }
 }
 
 
 
+/**
+ * 並び替え数
+ * 
+ * 
+ */
 function sortSheet(sheetId, sheetName, sortRowCount) {
   const ss = SpreadsheetApp.openById(sheetId);
   const sheet = ss.getSheetByName(sheetName);
@@ -310,7 +347,7 @@ function sortSheet(sheetId, sheetName, sortRowCount) {
   const lastCol = sheet.getLastColumn();
   const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
 
-  let posisionCol = headers.indexOf('posision') + 1;
+  let positionCol = headers.indexOf('position') + 1;
   const usageDateCol = headers.indexOf('usage_date') + 1;
 
   if (usageDateCol === 0) {
@@ -325,7 +362,7 @@ function sortSheet(sheetId, sheetName, sortRowCount) {
   }
 
   const sortCriteria = [
-    { column: posisionCol, ascending: true },
+    { column: positionCol, ascending: true },
     { column: usageDateCol, ascending: true }
   ];
 
@@ -333,13 +370,3 @@ function sortSheet(sheetId, sheetName, sortRowCount) {
   console.log(`${sheetName} を並び替え完了（行数: ${rangeRowCount}）`);
 }
 
-
-//単体テスト
-function testFlexibleGatudoResolver() {
-  const resolver = new GatudoResolver();
-
-  const dateStr = '2025/09/10';
-  const monthId = resolver.resolve(dateStr);
-
-  console.log(`Date ${dateStr} の月度ID: ${monthId}`);
-}

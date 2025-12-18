@@ -29,13 +29,13 @@ const CONFIGS = {
     outputHeaders: [
       'rpay_id',
       'input_date',
-      'usage_date',     // ← 修正: 'date' → 'usage_date'
-      'store_name',     // ← 修正: 'store' → 'store_name'
-      'usage',          // ← 修正: 'name' → 'usage'
+      'usage_date', 
+      'store_name',
+      'usage',
       'amount',
       'permanent_link',
       'mailid',
-      'posision'        // ★追加
+      'position'
     ],
 
     // 家計簿出力順
@@ -49,7 +49,7 @@ const CONFIGS = {
       'category_small_id',
       'tag_id',
       'memo',
-      'store',
+      'store_name',
       'month_id',
       'payment_date',
       'payment_month',
@@ -74,7 +74,7 @@ const CONFIGS = {
         regex: /利用金額:\s*(\d{1,3}(?:,\d{3})*)/,
         process: val => val.replace(/[¥￥,]/g, '').trim()
       },
-      { label: 'posision', regex: /利用場所：(.+)/ }
+      { label: 'position', regex: /利用場所：(.+)/ }
     ],
 
     fields_normal: [
@@ -87,7 +87,7 @@ const CONFIGS = {
         process: val => val.replace(/[¥￥,]/g, '').trim()
       },
       { label: 'payment_month', regex: /支払月[:：]\s*(.+)/ },
-      { label: 'posision', regex: /利用場所：(.+)/ }
+      { label: 'position', regex: /利用場所：(.+)/ }
     ],
 
     // メインシート出力順
@@ -100,7 +100,7 @@ const CONFIGS = {
       'amount',
       'payment_month', // 空文字になる
       'memo',          // 空文字
-      'posision',
+      'position',
       'permanent_link',
       'mailid'
     ],
@@ -114,7 +114,7 @@ const CONFIGS = {
       'amount',
       'payment_month',
       'memo',
-      'posision',
+      'position',
       'permanent_link',
       'mailid'
     ],
