@@ -16,11 +16,12 @@ const CONFIGS = {
       {
         label: 'amount',
         regex: /決済総額\s+(\d{1,3}(?:,\d{3})*)/,
-        process: val => val.replace(/[¥￥,]/g, '').trim(),
+        process: _parseAmount     // ← ここで数値に変換
       },
       {
         label: 'usage_date',
         regex: /ご利用日時\s+(\d{4}\/\d{2}\/\d{2}\(.\)\s+\d{2}:\d{2})/,
+        process: _parseDate       // ← ここで Date に変換
       },
       { label: 'usage', regex: /鎌田\s+(.+)様/ },
     ],
@@ -45,15 +46,15 @@ const CONFIGS = {
       'date',
       'amount',
       'payment_method',
-      'category_large_id',
-      'category_small_id',
-      'tag_id',
+      'category_large',
+      'category_small',
+      'tag',
       'memo',
       'store_name',
       'month_id',
       'payment_date',
       'payment_month',
-      'position_flag'
+      'position'
     ]
   },
 
@@ -67,24 +68,32 @@ const CONFIGS = {
     sortRowCount: 50,  // 並び替えをする行の数
 
     fields_sokuho: [
-      { label: 'usage_date', regex: /利用日:\s*(\d{4}\/\d{2}\/\d{2})/ },
+      {
+        label: 'usage_date',
+        regex: /利用日:\s*(\d{4}\/\d{2}\/\d{2})/,
+        process: _parseDate       // ← ここで Date に変換
+      },
       { label: 'usage', regex: /利用者:(.+)/ },
       {
         label: 'amount',
         regex: /利用金額:\s*(\d{1,3}(?:,\d{3})*)/,
-        process: val => val.replace(/[¥￥,]/g, '').trim()
+        process: _parseAmount     // ← ここで数値に変換
       },
       { label: 'position', regex: /利用場所：(.+)/ }
     ],
 
     fields_normal: [
-      { label: 'usage_date', regex: /利用日:\s*(\d{4}\/\d{2}\/\d{2})/ },
+      {
+        label: 'usage_date',
+        regex: /利用日:\s*(\d{4}\/\d{2}\/\d{2})/,
+        process: _parseDate       // ← ここで Date に変換
+      },
       { label: 'store_name', regex: /利用先:(.+)/ },
       { label: 'usage', regex: /利用者:(.+)/ },
       {
         label: 'amount',
         regex: /利用金額:\s*(\d{1,3}(?:,\d{3})*)/,
-        process: val => val.replace(/[¥￥,]/g, '').trim()
+        process: _parseAmount     // ← ここで数値に変換
       },
       { label: 'payment_month', regex: /支払月[:：]\s*(.+)/ },
       { label: 'position', regex: /利用場所：(.+)/ }
@@ -126,15 +135,15 @@ const CONFIGS = {
       'usage_date',
       'amount',
       'payment_method',
-      'category_large_id',
-      'category_small_id',
-      'tag_id',
+      'category_large',
+      'category_small',
+      'tag',
       'memo',
       'store_name',
       'month_id',
       'payment_date',
       'payment_month',
-      'position_flag'
+      'position'
     ]
   }
 };
@@ -145,5 +154,21 @@ const HOUSEHOLD_SHEET = {
     meisai: '明細T',
     getsudo: '月度M'
   },
-  sortRowCount: 3000  // ★追加
+  sortRowCount: 3000,
+  headers: [
+    'meisai_id',
+    'input_date',
+    'usage_date',
+    'amount',
+    'payment_method',
+    'category_large',
+    'category_small',
+    'tag',
+    'memo',
+    'store_name',
+    'month_id',
+    'payment_date',
+    'payment_month',
+    'position'
+  ]
 };

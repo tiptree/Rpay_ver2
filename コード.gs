@@ -2,11 +2,10 @@ const IS_TEST_MODE = true; // ← 本番では false
 
 
 function modeChange() {
-  main('card');
+  main('rpay');
 }
 
-
-// =======================================
+// ======================================= 
 // メイン関数
 // =======================================
 function main(mode) {
@@ -16,8 +15,7 @@ function main(mode) {
     return;
   }
 
-  const resolver = new GatudoResolver(); // ← これを追加
-
+  const resolver = new GatudoResolver();
   const threads = searchContactMail(config.labelQuery);
   if (threads.length === 0) {
     console.log("対象メールが来ていません");
@@ -29,138 +27,129 @@ function main(mode) {
 
   const newMails = getThreadsData(threads, existingIds, mode);
   if (newMails.length === 0) {
-    console.log("記入されています");
+    console.log("すでに記入済みのメールです");
     return;
   }
 
   const newRowObjects = [];
   const householdRowObjects = [];
 
-  //ここにメール上書き関数呼び出しを追加
-  if (householdRowObjects.length > 0) {
-    writeHouseholdData(householdRowObjects);  // ← これを使う
-  }
-
-  //ここまで
-
-
   newMails.forEach(mail => {
     const [uniqueid, inputDate, sendDate, body, permalink, subject, id] = mail;
+
+    let fields, usageDate, amount;
+    let position = 0;
+
     if (mode === 'card') {
       const isSokuho = subject.includes("速報版");
+      position = isSokuho ? 1 : 0;
+
       const fieldDefs = isSokuho ? config.fields_sokuho : config.fields_normal;
-      const fields = extractFields(body, fieldDefs);
+      fields = extractFields(body, fieldDefs);
+      usageDate = fields.usage_date || null;
+      amount = fields.amount || 0;
 
-      // ★ 追加：card用 usage_date を Date 化
-      const usageDate = fields.usage_date
-        ? new Date(fields.usage_date.replace(/\//g, '-'))
-        : null;
-
-
-      // カード用メインシート（オブジェクト）
       const mainRow = {
         card_id: uniqueid,
         input_date: inputDate,
         usage_date: usageDate,
         store_name: isSokuho ? '' : (fields.store_name || ''),
         usage: fields.usage || '',
-        amount: fields.amount || '',
+        amount: amount,
         payment_month: isSokuho ? '' : (fields.payment_month || ''),
         memo: '',
-        position: isSokuho ? 1 : 0,
+        position: position,
         permanent_link: permalink,
         mailid: id
       };
       newRowObjects.push(mainRow);
 
-      // カード　→　家計簿シート（オブジェクト）
       const householdRow = {
-        id: uniqueid,
+        meisai_id: uniqueid,
         input_date: inputDate,
         usage_date: usageDate,
-        amount: fields.amount || '',
+        amount: amount,
         payment_method: "CARD",
         category_large: "",
         category_small: "",
-        tag: fields.usage || '',  //→usageを入力する　自分用か家族用か
+        tag: fields.usage || '',
         memo: "",
         store_name: isSokuho ? '' : (fields.store_name || ''),
         month_id: resolver.resolve(usageDate),
         payment_date: "",
-        payment_month_id: "",
-        position: isSokuho ? 1 : 0
+        payment_month: "",
+        position: position
       };
       householdRowObjects.push(householdRow);
 
     } else if (mode === 'rpay') {
-      const fields = extractFields(body, config.fields);
+      fields = extractFields(body, config.fields);
+      usageDate = fields.usage_date || null;
+      amount = fields.amount || 0;
 
-      // "2025/12/17(水) 15:32" → Date
-      const usageDateStr = fields.usage_date;
-      const usageDate = new Date(
-        usageDateStr
-          .replace(/\(.+\)/, '')  // 曜日削除
-          .replace(/\//g, '-')
-      );
-
-
-      // RPay用メインシート（オブジェクト）
       const mainRow = {
         rpay_id: uniqueid,
         input_date: inputDate,
         usage_date: usageDate,
         store_name: fields.store_name || '',
         usage: fields.usage || fields.cardType || '',
-        amount: fields.amount || '',
+        amount: amount,
         permanent_link: permalink,
         mailid: id,
         position: 2
       };
       newRowObjects.push(mainRow);
 
-      // RPay　→　家計簿シート（オブジェクト）
       const householdRow = {
-        id: uniqueid,
+        meisai_id: uniqueid,
         input_date: inputDate,
         usage_date: usageDate,
-        amount: fields.amount || '',
+        amount: amount,
         payment_method: "RPay",
         category_large: "",
         category_small: "",
         tag: fields.usage === "陽介" ? "本人" : fields.usage === "美智子" ? "家族" : "不明",
         memo: "",
         store_name: fields.store_name || '',
-        month_id: resolver.resolve(usageDate), // ← ここで月度IDをセット,
+        month_id: resolver.resolve(usageDate),
         payment_date: "",
-        payment_month_id: "",
+        payment_month: "",
         position: 2
       };
       householdRowObjects.push(householdRow);
     }
   });
 
-  // メインシートへ追記（オブジェクト → 配列変換）
+  // メインシートへの追記
   if (newRowObjects.length > 0) {
-    const rowArray = objectsToArrays(newRowObjects, config.headers);
-    const rows = rowArray.slice(1);  // ここでヘッダー削除
-    appendRowsToSheet(config.sheetId, config.sheetName, rows);
+    const rowArray = newRowObjects.map(row => {
+      if (mode === 'card') {
+        return row.position === 1
+          ? config.outputHeaders_sokuho.map(h => row[h])
+          : config.outputHeaders_normal.map(h => row[h]);
+      } else {
+        return config.outputHeaders.map(h => row[h]);
+      }
+    });
+
+    appendRowsToSheet(config.sheetId, config.sheetName, rowArray);
     console.log(`${newRowObjects.length} 件の ${mode} メールを書き込みました。`);
   }
 
-  // 家計簿シートへ追記（共通）
+  // 家計簿シートへの追記
   if (householdRowObjects.length > 0) {
-    const rowArray = objectsToArrays(householdRowObjects, HOUSEHOLD_SHEET.headers);
-    const rows = rowArray.slice(1);  // ここでヘッダー削除
-    appendRowsToSheet(HOUSEHOLD_SHEET.sheetId, HOUSEHOLD_SHEET.sheets.meisai, rows);
+    const rowArray = householdRowObjects.map(row => HOUSEHOLD_SHEET.headers.map(h => row[h]));
+    appendRowsToSheet(HOUSEHOLD_SHEET.sheetId, HOUSEHOLD_SHEET.sheets.meisai, rowArray);
     console.log(`家計簿に ${householdRowObjects.length} 件のデータを追加しました。`);
   }
 
-  // すべて書き込み完了後に、並び替えを一括で実行
+  // 並び替え
   sortSheet(HOUSEHOLD_SHEET.sheetId, HOUSEHOLD_SHEET.sheets.meisai, HOUSEHOLD_SHEET.sortRowCount);
   sortSheet(config.sheetId, config.sheetName, config.sortRowCount);
-
-
 }
+
+
+
 
 // =======================================
 // Gmail 検索
@@ -369,4 +358,52 @@ function sortSheet(sheetId, sheetName, sortRowCount) {
   sheet.getRange(2, 1, rangeRowCount, lastCol).sort(sortCriteria);
   console.log(`${sheetName} を並び替え完了（行数: ${rangeRowCount}）`);
 }
+
+
+// =======================================
+// 日付変換（文字列または Date → Date オブジェクト）
+// usage: _parseDate("2025/12/21(水)") → Date オブジェクト
+// =======================================
+function _parseDate(value) {
+  if (!value) return null;
+
+  let dateObj;
+  if (value instanceof Date) {
+    dateObj = value;
+  } else {
+    try {
+      // 曜日削除・スラッシュ→ハイフン
+      const clean = value.replace(/\(.+\)/, '').trim().replace(/\//g, '-');
+      dateObj = new Date(clean);
+    } catch (e) {
+      console.warn(`日付変換エラー: ${value}`, e);
+      return null;
+    }
+  }
+
+  // 無効日付チェック
+  if (isNaN(dateObj)) {
+    console.warn(`無効な日付: ${value}`);
+    return null;
+  }
+
+  // 時刻をリセットして日付のみ
+  return new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+}
+
+// =======================================
+// 金額変換（文字列 → 数値）
+// usage: _parseAmount("￥1,234") → 1234
+// =======================================
+function _parseAmount(value) {
+  if (!value) return 0;
+  try {
+    const num = Number(value.replace(/[¥￥,]/g, '').trim());
+    return isNaN(num) ? 0 : num;
+  } catch (e) {
+    console.warn(`金額変換エラー: ${value}`, e);
+    return 0;
+  }
+}
+
 
